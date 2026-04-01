@@ -1,6 +1,5 @@
 import { Route, Routes } from 'react-router-dom'
 import CustomCursor from './components/CustomCursor'
-import Navbar from './components/Navbar'
 import About from './pages/About'
 import Certificates from './pages/Certificates'
 import Contact from './pages/Contact'

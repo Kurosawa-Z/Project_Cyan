@@ -15,84 +15,133 @@ export default function CustomCursor() {
 
   const [isPointer, setIsPointer] = useState(false)
   const [isDown, setIsDown] = useState(false)
+  const [isEnabled, setIsEnabled] = useState(false)
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
+    const prefersReducedMotionQuery = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
-    ).matches
-    const isFinePointer = window.matchMedia('(pointer: fine)').matches
+    )
+    const finePointerQuery = window.matchMedia('(pointer: fine)')
+    // Tailwind `sm` starts at 640px, so this matches phone/<sm.
+    const smallScreenQuery = window.matchMedia('(max-width: 639px)')
 
-    if (prefersReducedMotion || !isFinePointer) return
+    let cleanupCursor: (() => void) | null = null
 
-    document.documentElement.classList.add('has-custom-cursor')
-
-    const onMove = (event: PointerEvent) => {
-      targetPosition.current.x = event.clientX
-      targetPosition.current.y = event.clientY
+    const disableCursor = () => {
+      if (cleanupCursor) {
+        cleanupCursor()
+        cleanupCursor = null
+      }
+      setIsEnabled(false)
+      setIsPointer(false)
+      setIsDown(false)
+      document.documentElement.classList.remove('has-custom-cursor')
     }
 
-    const onOver = (event: PointerEvent) => {
-      const element = event.target as HTMLElement | null
-      if (!element) return
+    const enableCursor = () => {
+      document.documentElement.classList.add('has-custom-cursor')
+      setIsEnabled(true)
 
-      const interactive = element.closest(
-        'a, button, [role="button"], input[type="button"], input[type="submit"], summary, label, select, textarea',
-      )
-      setIsPointer(Boolean(interactive))
-    }
+      const onMove = (event: PointerEvent) => {
+        targetPosition.current.x = event.clientX
+        targetPosition.current.y = event.clientY
+      }
 
-    const onDown = () => setIsDown(true)
-    const onUp = () => setIsDown(false)
+      const onOver = (event: PointerEvent) => {
+        const element = event.target as HTMLElement | null
+        if (!element) return
 
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerover', onOver)
-    window.addEventListener('pointerdown', onDown)
-    window.addEventListener('pointerup', onUp)
+        const interactive = element.closest(
+          'a, button, [role="button"], input[type="button"], input[type="submit"], summary, label, select, textarea',
+        )
+        setIsPointer(Boolean(interactive))
+      }
 
-    // Initialize both positions so the cursor doesn't fly in.
-    targetPosition.current.x = window.innerWidth / 2
-    targetPosition.current.y = window.innerHeight / 2
-    currentPosition.current.x = targetPosition.current.x
-    currentPosition.current.y = targetPosition.current.y
+      const onDown = () => setIsDown(true)
+      const onUp = () => setIsDown(false)
 
-    const tick = () => {
-      // Lower = slower and more dramatic.
-      const followSpeed = 0.1
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerover', onOver)
+      window.addEventListener('pointerdown', onDown)
+      window.addEventListener('pointerup', onUp)
 
-      currentPosition.current.x = lerp(
-        currentPosition.current.x,
-        targetPosition.current.x,
-        followSpeed,
-      )
-      currentPosition.current.y = lerp(
-        currentPosition.current.y,
-        targetPosition.current.y,
-        followSpeed,
-      )
+      // Initialize both positions so the cursor doesn't fly in.
+      targetPosition.current.x = window.innerWidth / 2
+      targetPosition.current.y = window.innerHeight / 2
+      currentPosition.current.x = targetPosition.current.x
+      currentPosition.current.y = targetPosition.current.y
 
-      const node = cursorRef.current
-      if (node) {
-        // Use CSS vars to avoid layout thrash.
-        node.style.setProperty('--x', `${currentPosition.current.x}px`)
-        node.style.setProperty('--y', `${currentPosition.current.y}px`)
+      const tick = () => {
+        // Lower = slower and more dramatic.
+        const followSpeed = 0.1
+
+        currentPosition.current.x = lerp(
+          currentPosition.current.x,
+          targetPosition.current.x,
+          followSpeed,
+        )
+        currentPosition.current.y = lerp(
+          currentPosition.current.y,
+          targetPosition.current.y,
+          followSpeed,
+        )
+
+        const node = cursorRef.current
+        if (node) {
+          // Use CSS vars to avoid layout thrash.
+          node.style.setProperty('--x', `${currentPosition.current.x}px`)
+          node.style.setProperty('--y', `${currentPosition.current.y}px`)
+        }
+
+        rafId.current = window.requestAnimationFrame(tick)
       }
 
       rafId.current = window.requestAnimationFrame(tick)
+
+      return () => {
+        document.documentElement.classList.remove('has-custom-cursor')
+
+        if (rafId.current) window.cancelAnimationFrame(rafId.current)
+
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerover', onOver)
+        window.removeEventListener('pointerdown', onDown)
+        window.removeEventListener('pointerup', onUp)
+      }
     }
 
-    rafId.current = window.requestAnimationFrame(tick)
+    const shouldEnable = () => {
+      return (
+        !prefersReducedMotionQuery.matches &&
+        finePointerQuery.matches &&
+        !smallScreenQuery.matches
+      )
+    }
+
+    const sync = () => {
+      if (shouldEnable()) {
+        if (!cleanupCursor) cleanupCursor = enableCursor()
+      } else {
+        disableCursor()
+      }
+    }
+
+    const onMediaChange = () => sync()
+    prefersReducedMotionQuery.addEventListener('change', onMediaChange)
+    finePointerQuery.addEventListener('change', onMediaChange)
+    smallScreenQuery.addEventListener('change', onMediaChange)
+
+    sync()
 
     return () => {
-      document.documentElement.classList.remove('has-custom-cursor')
-
-      if (rafId.current) window.cancelAnimationFrame(rafId.current)
-
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerover', onOver)
-      window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('pointerup', onUp)
+      prefersReducedMotionQuery.removeEventListener('change', onMediaChange)
+      finePointerQuery.removeEventListener('change', onMediaChange)
+      smallScreenQuery.removeEventListener('change', onMediaChange)
+      disableCursor()
     }
   }, [])
+
+  if (!isEnabled) return null
 
   return (
     <div
